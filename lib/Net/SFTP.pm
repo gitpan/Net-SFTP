@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.29 2003/12/12 21:24:21 autarch Exp $
+# $Id: SFTP.pm,v 1.30 2005/01/16 21:36:56 dbrobins Exp $
 
 package Net::SFTP;
 use strict;
@@ -10,10 +10,10 @@ use Net::SFTP::Buffer;
 use Net::SSH::Perl::Constants qw( :msg2 );
 use Net::SSH::Perl 1.24;
 
-use Carp qw( croak );
+use Carp qw( carp croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.08;
+$VERSION = 0.09;
 
 use constant COPY_SIZE => 8192;
 
@@ -24,11 +24,36 @@ sub new {
     $sftp->init(@_);
 }
 
+# call the warning handler with the object and message
+sub warn {
+    my ($sftp,$msg,$status) = @_;
+    $msg .= ': '.fx2txt($status) if defined $status;
+    $sftp->{status} = $status || SSH2_FX_OK;
+    $sftp->{warn_h}->($sftp,$msg);
+}
+
+# returns last SSH error, or SSH2_FX_OK (only useful after failure)
+sub status {
+    my $sftp = shift;
+    my $status = $sftp->{status};
+    wantarray ? ($status,fx2txt($status)) : $status
+}
+
+# returns the new object
 sub init {
     my $sftp = shift;
     my %param = @_;
     $sftp->{debug} = delete $param{debug};
+    $sftp->{status} = SSH2_FX_OK;
+
     $param{ssh_args} ||= [];
+    $param{ssh_args} = [%{$param{ssh_args}}]
+     if UNIVERSAL::isa($param{ssh_args},'HASH');
+
+    $param{warn} = 1 if not defined $param{warn};   # default
+    $sftp->{warn_h} = delete $param{warn} || sub {};  # false => ignore
+    $sftp->{warn_h} = sub { carp $_[1] }	# true	=> emit warning
+     if $sftp->{warn_h} and not ref $sftp->{warn_h};
 
     $sftp->{_msg_id} = 0;
 
@@ -45,6 +70,7 @@ sub init {
     $sftp;
 }
 
+# returns the new channel object
 sub _open_channel {
     my $sftp = shift;
     my $ssh = $sftp->{ssh};
@@ -118,6 +144,7 @@ sub debug {
 
 ## Server -> client methods.
 
+# reads SSH2_FXP_STATUS packet and returns Net::SFTP::Attributes object or undef
 sub get_attrs {
     my $sftp = shift;
     my($expected_id) = @_;
@@ -128,7 +155,7 @@ sub get_attrs {
     croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
-        warn "Couldn't stat remote file: ", fx2txt($status);
+	$sftp->warn("Couldn't stat remote file",$status);
         return;
     }
     elsif ($type != SSH2_FXP_ATTRS) {
@@ -137,6 +164,7 @@ sub get_attrs {
     $msg->get_attributes;
 }
 
+# reads SSH2_FXP_STATUS packet and returns SFTP status value
 sub get_status {
     my $sftp = shift;
     my($expected_id) = @_;
@@ -152,6 +180,7 @@ sub get_status {
     $msg->get_int32;
 }
 
+# reads SSH2_FXP_HANDLE packet and returns handle, or undef on failure
 sub get_handle {
     my $sftp = shift;
     my($expected_id) = @_;
@@ -163,7 +192,7 @@ sub get_handle {
     croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
-        warn "Couldn't get handle: ", fx2txt($status);
+	$sftp->warn("Couldn't get handle",$status);
         return;
     }
     elsif ($type != SSH2_FXP_HANDLE) {
@@ -198,11 +227,12 @@ sub _send_str_attrs_request {
 
 sub _check_ok_status {
     my $status = $_[0]->get_status($_[1]);
-    warn "Couldn't $_[2]: ", fx2txt($status) unless $status == SSH2_FX_OK;
+    $_[0]->warn("Couldn't $_[2]",$status) unless $status == SSH2_FX_OK;
     $status;
 }
 
 ## SSH2_FXP_OPEN (3)
+# returns handle on success, undef on failure
 sub do_open {
     my $sftp = shift;
     my($path, $flags, $a) = @_;
@@ -217,6 +247,7 @@ sub do_open {
 }
 
 ## SSH2_FXP_READ (4)
+# returns data on success, (undef,$status) on failure
 sub do_read {
     my $sftp = shift;
     my($handle, $offset, $size) = @_;
@@ -235,7 +266,7 @@ sub do_read {
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
         if ($status != SSH2_FX_EOF) {
-            warn "Couldn't read from remote file: ", fx2txt($status);
+	    $sftp->warn("Couldn't read from remote file",$status);
             $sftp->do_close($handle);
         }
         return(undef, $status);
@@ -247,6 +278,7 @@ sub do_read {
 }
 
 ## SSH2_FXP_WRITE (6)
+# returns status (SSH2_FX_OK on success)
 sub do_write {
     my $sftp = shift;
     my($handle, $offset, $data) = @_;
@@ -256,15 +288,13 @@ sub do_write {
     $msg->put_str($data);
     $sftp->send_msg($msg);
     $sftp->debug("Sent message SSH2_FXP_WRITE I:$id O:$offset");
-    my $status = $sftp->get_status($id);
-    if ($status != SSH2_FX_OK) {
-        warn "Couldn't write to remote file: ", fx2txt($status);
-        $sftp->do_close($handle);
-    }
+    my $status = $sftp->_check_ok_status($id,'write to remote file');
+    $sftp->do_close($handle) unless $status == SSH2_FX_OK;
     return $status;
 }
 
 ## SSH2_FXP_LSTAT (7), SSH2_FXP_FSTAT (8), SSH2_FXP_STAT (17)
+# these all return a Net::SFTP::Attributes object on success, undef on failure
 sub do_lstat { $_[0]->_do_stat(SSH2_FXP_LSTAT, $_[1]) }
 sub do_fstat { $_[0]->_do_stat(SSH2_FXP_FSTAT, $_[1]) }
 sub do_stat  { $_[0]->_do_stat(SSH2_FXP_STAT , $_[1]) }
@@ -284,6 +314,7 @@ sub do_opendir {
 ## SSH2_FXP_CLOSE (4),   SSH2_FXP_REMOVE (13),
 ## SSH2_FXP_MKDIR (14),  SSH2_FXP_RMDIR (15),
 ## SSH2_FXP_SETSTAT (9), SSH2_FXP_FSETSTAT (10)
+# all of these return a status (SSH2_FX_OK on success)
 {
     no strict 'refs';
     *do_close    = _gen_simple_method(SSH2_FXP_CLOSE,  'close file');
@@ -316,7 +347,7 @@ sub do_realpath {
     croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
-        warn "Couldn't canonicalise $path: ", fx2txt($status);
+	$sftp->warn("Couldn't canonicalise $path",$status);
         return;
     }
     elsif ($type != SSH2_FXP_NAME) {
@@ -342,6 +373,8 @@ sub do_rename {
 
 ## High-level client -> server methods.
 
+# always returns undef on failure
+# if local filename is provided, returns '' on success, else file contents
 sub get {
     my $sftp = shift;
     my($remote, $local, $cb) = @_;
@@ -349,13 +382,16 @@ sub get {
     my $want = defined wantarray ? 1 : 0;
 
     my $a = $sftp->do_stat($remote) or return;
+    my $handle = $sftp->do_open($remote, SSH2_FXF_READ) or return;
+
     local *FH;
     if ($local) {
-        open FH, ">$local" or croak "Can't open $local: $!";
-        binmode FH or croak "Can't binmode FH: $!";
+	open FH, ">$local" or
+	    $sftp->do_close($handle), croak "Can't open $local: $!";
+	binmode FH or
+	    $sftp->do_close($handle), croak "Can't binmode FH: $!";
     }
 
-    my $handle = $sftp->do_open($remote, SSH2_FXF_READ);
     my $offset = 0;
     my $ret = '';
     while (1) {
@@ -408,10 +444,10 @@ sub put {
 
     local *FH;
     open FH, $local or croak "Can't open local file $local: $!";
-    binmode FH or die "Can't binmode FH: $!";
+    binmode FH or croak "Can't binmode FH: $!";
 
     my $handle = $sftp->do_open($remote, SSH2_FXF_WRITE | SSH2_FXF_CREAT |
-        SSH2_FXF_TRUNC, $a);
+	SSH2_FXF_TRUNC, $a) or return;  # check status for info
 
     my $offset = 0;
     while (1) {
@@ -428,17 +464,20 @@ sub put {
         $offset += $len;
     }
 
-    close FH or warn "Can't close local file $local: $!";
+    close FH or $sftp->warn("Can't close local file $local: $!");
 
+    # ignore failures here, the transmission is the important part
     $sftp->do_fsetstat($handle, $a);
     $sftp->do_close($handle);
+    return 1;
 }
 
+# returns ()/undef on error, directory list/reference to same otherwise
 sub ls {
     my $sftp = shift;
     my($remote, $code) = @_;
     my @dir;
-    my $handle = $sftp->do_opendir($remote);
+    my $handle = $sftp->do_opendir($remote) or return;
     while (1) {
         my $expected_id = $sftp->_send_str_request(SSH2_FXP_READDIR, $handle);
         my $msg = $sftp->get_msg;
@@ -454,7 +493,7 @@ sub ls {
                 last;
             }
             else {
-                warn "Couldn't read directory: ", fx2txt($status);
+		$sftp->warn("Couldn't read directory",$status);
                 $sftp->do_close($handle);
                 return;
             }
@@ -484,7 +523,7 @@ sub ls {
         }
     }
     $sftp->do_close($handle);
-    @dir;
+    wantarray ? @dir : \@dir;
 }
 
 ## Messaging methods--messages are essentially sub-packets.
@@ -611,6 +650,12 @@ on the I<debug> parameter in I<Net::SSH::Perl>.
 
 The default is false.
 
+=item * warn
+
+If given a sub ref, the sub is called with $self and any warning
+message; if set to false, warnings are supressed; otherwise they
+are output with 'warn' (default).
+
 =item * ssh_args
 
 Specifies a reference to a list of named arguments that should
@@ -624,6 +669,16 @@ See the I<new> method in I<Net::SSH::Perl> for more details.
 
 =back
 
+=head2 $sftp->status
+
+Returns the last remote SFTP status value.  Only useful after one
+of the following methods has failed.  Returns SSH2_FX_OK if there
+is no remote error (e.g. local file not found).  In list context,
+returns a list of (status code, status text from C<fx2txt>).
+
+If a low-level protocol error or unexpected local error occurs,
+we die with an error message.
+
 =head2 $sftp->get($remote [, $local [, \&callback ] ])
 
 Downloads a file I<$remote> from the remote host. If I<$local>
@@ -634,7 +689,7 @@ will be set to those of the remote file.
 
 If I<get> is called in a non-void context, returns the contents
 of I<$remote> (as well as writing them to I<$local>, if I<$local>
-is provided.
+is provided.  Undef is returned on failure.
 
 I<$local> is optional. If not provided, the contents of the
 remote file I<$remote> will be either discarded, if I<get> is
@@ -678,6 +733,8 @@ status messages, upload progress meters, etc.:
         my($sftp, $data, $offset, $size) = @_;
         print "Wrote $offset / $size bytes\r";
     }
+
+Returns true on success, undef on error.
 
 =head2 $sftp->ls($remote [, $subref ])
 

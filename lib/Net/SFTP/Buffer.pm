@@ -1,4 +1,4 @@
-# $Id: Buffer.pm,v 1.10 2003/12/12 21:23:46 autarch Exp $
+# $Id: Buffer.pm,v 1.12 2005/01/16 21:36:56 dbrobins Exp $
 
 package Net::SFTP::Buffer;
 use strict;

@@ -1,5 +1,27 @@
 Revision history for Net::SFTP
 
+0.09  2005.01.16
+    - New co-maintainer, David Robins (DBROBINS).
+    - Adds a 'warn' argument to the constructor to allow supression or
+      redirection of warnings.
+    - Allows the 'ssh_args' constructor argument to be either a hash ref or an
+      array ref.
+    - Adds a 'status' method which returns the last SSH2_FX_* status value, or
+      (status value, text) in list context (only useful after last failure).
+    - Adds brief summary comments to some methods.
+	- Returns failure if the remote open fails for 'get' (previous code ignored
+      it); also moves the remote open before the local open so that we don't
+      create empty local files if the remote file can't be opened.
+	- Changes 'ls' to return an array reference in scalar context.
+	- Documents: the fact that we die on protocol/local errors; the new option
+      and method; changes to 'get'/'put' (formerly 'put' didn't return anything
+      useful, and 'get's actual return values are the same, just better
+      documented).
+	- Adds a comprehensive remote test, but to use it one has to manually go in
+      and configure a server a certain way, so it defaults to skipping
+      everything; I'm including it as a base since there are currently no remote
+      tests at all.
+
 0.08  2003.12.12
     - Net::SFTP::Buffer was passing an invalid option when loading
       Net::SSH::Perl::Buffer.
