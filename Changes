@@ -1,6 +1,18 @@
-$Id: Changes,v 1.2 2001/05/15 06:51:20 btrott Exp $
+$Id: Changes,v 1.4 2001/05/15 22:51:53 btrott Exp $
 
 Revision history for Net::SFTP
+
+0.03  2001.05.15
+    - Documentation for all extra classes: Attributes, Buffer,
+      Constants, and Util.
+    - Documentation for command methods in Net::SFTP.
+    - Added binmode when reading/writing from local files.
+    - Added methods for all remaining commands in SFTP protocol
+      version 3 (eg. remove, rmdir, mkdir, realpath, etc.).
+    - Added callbacks to get and put, eg. for status messages,
+      etc.
+    - Fixed typo in Net::SFTP::Buffer::get_int64 that was breaking
+      reading 64-bit ints.
 
 0.02  2001.05.14
     - Fixed bug with SSH2 server not sending one message per

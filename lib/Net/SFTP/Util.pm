@@ -1,4 +1,4 @@
-# $Id: Util.pm,v 1.1 2001/05/14 07:24:12 btrott Exp $
+# $Id: Util.pm,v 1.2 2001/05/15 22:34:12 btrott Exp $
 
 package Net::SFTP::Util;
 use strict;
@@ -25,3 +25,32 @@ use vars qw( %ERRORS );
 sub fx2txt { exists $ERRORS{$_[0]} ? $ERRORS{$_[0]} : "Unknown status" }
 
 1;
+__END__
+
+=head1 NAME
+
+Net::SFTP::Util - SFTP utility methods
+
+=head1 SYNOPSIS
+
+    use Net::SFTP::Util qw( sub_name );
+
+=head1 DESCRIPTION
+
+I<Net::SFTP::Util> provides a set of exportable utility functions
+used by I<Net::SFTP> libraries.
+
+=head2 fx2txt($status)
+
+Takes an integer status I<$status> as an argument, and returns
+a "friendly" textual message corresponding to that status.
+I<$status> should be one of the I<SSH2_FX_*> constants (exported
+by I<Net::SSH::Perl::Constants), perhaps returned from the
+SFTP server in a I<SSH2_FXP_STATUS> message.
+
+=head1 AUTHOR & COPYRIGHTS
+
+Please see the Net::SFTP manpage for author, copyright, and
+license information.
+
+=cut

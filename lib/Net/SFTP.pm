@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.11 2001/05/15 06:51:50 btrott Exp $
+# $Id: SFTP.pm,v 1.14 2001/05/15 21:52:38 btrott Exp $
 
 package Net::SFTP;
 use strict;
@@ -13,7 +13,7 @@ use Net::SSH::Perl;
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 use constant COPY_SIZE => 8192;
 
@@ -197,26 +197,17 @@ sub _send_str_attrs_request {
     $id;
 }
 
-sub do_stat {
-    my $sftp = shift;
-    my($path) = @_;
-    my $id = $sftp->_send_str_request(SSH2_FXP_STAT, $path);
-    $sftp->get_attrs($id);
-}
-
-sub do_fsetstat {
-    my $sftp = shift;
-    my($handle, $a) = @_;
-    my $id = $sftp->_send_str_attrs_request(SSH2_FXP_FSETSTAT, $handle, $a);
-    my $status = $sftp->get_status($id);
-    warn "Couldn't fsetstat: ", fx2txt($status)
-        unless $status == SSH2_FX_OK;
+sub _check_ok_status {
+    my $status = $_[0]->get_status($_[1]);
+    warn "Couldn't $_[2]: ", fx2txt($status) unless $status == SSH2_FX_OK;
     $status;
 }
 
+## SSH2_FXP_OPEN (3)
 sub do_open {
     my $sftp = shift;
     my($path, $flags, $a) = @_;
+    $a ||= Net::SFTP::Attributes->new;
     my($msg, $id) = $sftp->new_msg_w_id(SSH2_FXP_OPEN);
     $msg->put_str($path);
     $msg->put_int32($flags);
@@ -226,28 +217,87 @@ sub do_open {
     $sftp->get_handle($id);
 }
 
+## SSH2_FXP_LSTAT (7), SSH2_FXP_FSTAT (8), SSH2_FXP_STAT (17)
+sub do_lstat { $_[0]->_do_stat(SSH2_FXP_LSTAT, $_[1]) }
+sub do_fstat { $_[0]->_do_stat(SSH2_FXP_FSTAT, $_[1]) }
+sub do_stat  { $_[0]->_do_stat(SSH2_FXP_STAT , $_[1]) }
+sub _do_stat {
+    my $sftp = shift;
+    my $id = $sftp->_send_str_request(@_);
+    $sftp->get_attrs($id);
+}
+
+## SSH2_FXP_OPENDIR (11)
 sub do_opendir {
     my $sftp = shift;
-    my($path) = @_;
-    my $id = $sftp->_send_str_request(SSH2_FXP_OPENDIR, $path);
+    my $id = $sftp->_send_str_request(SSH2_FXP_OPENDIR, @_);
     $sftp->get_handle($id);
 }
 
-sub do_close {
+## SSH2_FXP_CLOSE (4),   SSH2_FXP_REMOVE (13),
+## SSH2_FXP_MKDIR (14),  SSH2_FXP_RMDIR (15),
+## SSH2_FXP_SETSTAT (9), SSH2_FXP_FSETSTAT (10)
+{
+    no strict 'refs';
+    *do_close    = _gen_simple_method(SSH2_FXP_CLOSE,  'close file');
+    *do_remove   = _gen_simple_method(SSH2_FXP_REMOVE, 'delete file');
+    *do_mkdir    = _gen_simple_method(SSH2_FXP_MKDIR,  'create directory');
+    *do_rmdir    = _gen_simple_method(SSH2_FXP_RMDIR,  'remove directory');
+    *do_setstat  = _gen_simple_method(SSH2_FXP_SETSTAT , 'setstat');
+    *do_fsetstat = _gen_simple_method(SSH2_FXP_FSETSTAT , 'fsetstat');
+}
+
+sub _gen_simple_method {
+    my($code, $msg) = @_;
+    sub {
+        my $sftp = shift;
+        my $id = @_ > 1 ?
+            $sftp->_send_str_attrs_request($code, @_) :
+            $sftp->_send_str_request($code, @_);
+        $sftp->_check_ok_status($id, $msg);
+    };
+}
+
+## SSH2_FXP_REALPATH (16)
+sub do_realpath {
     my $sftp = shift;
-    my($handle) = @_;
-    my $id = $sftp->_send_str_request(SSH2_FXP_CLOSE, $handle);
-    my $status = $sftp->get_status($id);
-    warn "Couldn't close file: ", fx2txt($status)
-        unless $status == SSH2_FX_OK;
-    $status;
+    my($path) = @_;
+    my $expected_id = $sftp->_send_str_request(SSH2_FXP_REALPATH, $path);
+    my $msg = $sftp->get_msg;
+    my $type = $msg->get_int8;
+    my $id = $msg->get_int32;
+    croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
+    if ($type == SSH2_FXP_STATUS) {
+        my $status = $msg->get_int32;
+        warn "Couldn't canonicalise $path: ", fx2txt($status);
+        return;
+    }
+    elsif ($type != SSH2_FXP_NAME) {
+        croak "Expected SSH2_FXP_NAME packet, got $type";
+    }
+    my $count = $msg->get_int32;
+    croak "Got multiple names ($count) from SSH2_FXP_REALPATH"
+        unless $count == 1;
+    $msg->get_str;   ## Filename.
+}
+
+## SSH2_FXP_RENAME (18)
+sub do_rename {
+    my $sftp = shift;
+    my($old, $new) = @_;
+    my($msg, $id) = $sftp->new_msg_w_id(SSH2_FXP_RENAME);
+    $msg->put_str($old);
+    $msg->put_str($new);
+    $sftp->send_msg($msg);
+    $sftp->debug("Sent message SSH2_FXP_RENAME '$old' => '$new'");
+    $sftp->_check_ok_status($id, "rename '$old' to '$new'");
 }
 
 ## High-level client -> server methods.
 
 sub get {
     my $sftp = shift;
-    my($remote, $local) = @_;
+    my($remote, $local, $cb) = @_;
     my $ssh = $sftp->{ssh};
 
     my $a = $sftp->do_stat($remote) or return;
@@ -255,10 +305,10 @@ sub get {
     local *FH;
     if ($local) {
         open FH, ">$local" or croak "Can't open $local: $!";
+        binmode FH or croak "Can't binmode FH: $!";
     }
 
-    my $handle = $sftp->do_open($remote, SSH2_FXF_READ,
-        Net::SFTP::Attributes->new);
+    my $handle = $sftp->do_open($remote, SSH2_FXF_READ);
 
     my $offset = 0;
     my $ret = '';
@@ -300,6 +350,8 @@ sub get {
         }
         $sftp->debug("In read loop, got $len offset $offset");
 
+        $cb->($sftp, $data, $offset, $a->size) if defined $cb;
+
         if ($local) {
             print FH $data;
         }
@@ -329,12 +381,16 @@ sub get {
 
 sub put {
     my $sftp = shift;
-    my($local, $remote) = @_;
+    my($local, $remote, $cb) = @_;
     my $ssh = $sftp->{ssh};
+
+    my @stat = stat $local or croak "Can't stat local $local: $!";
+    my $size = $stat[7];
 
     local *FH;
     open FH, $local or croak "Can't open local file $local: $!";
-    my $a = Net::SFTP::Attributes->new(Stat => [ stat $local ]);
+    binmode FH or die "Can't binmode FH: $!";
+    my $a = Net::SFTP::Attributes->new(Stat => \@stat);
 
     my $handle = $sftp->do_open($remote, SSH2_FXF_WRITE | SSH2_FXF_CREAT |
         SSH2_FXF_TRUNC, $a);
@@ -344,6 +400,8 @@ sub put {
         my($len, $data, $msg, $id);
         $len = read FH, $data, COPY_SIZE;
         last unless $len;
+
+        $cb->($sftp, $data, $offset, $size) if defined $cb;
 
         ($msg, $id) = $sftp->new_msg_w_id(SSH2_FXP_WRITE);
         $msg->put_str($handle);
@@ -560,7 +618,7 @@ See the I<new> method in I<Net::SSH::Perl> for more details.
 
 =back
 
-=head2 $sftp->get($remote [, $local ])
+=head2 $sftp->get($remote [, $local [, \&callback ] ])
 
 Downloads a file I<$remote> from the remote host. If I<$local>
 is specified, it is opened/created, and the contents of the
@@ -570,10 +628,41 @@ will be set to those of the remote file.
 
 If I<$local> is not given, returns the contents of I<$remote>.
 
-=head2 $sftp->put($local, $remote)
+If I<\&callback> is specified, it should be a reference to a
+subroutine. The subroutine will be executed at each iteration
+of the read loop (files are generally read in 8192-byte
+blocks, although this depends on the server implementation).
+The callback function will receive as arguments: a
+I<Net::SFTP> object with an open SFTP connection; the data
+read from the SFTP server; the offset from the beginning of
+the file (in bytes); and the total size of the file (in
+bytes). You can use this mechanism to provide status messages,
+download progress meters, etc.:
+
+    sub callback {
+        my($sftp, $data, $offset, $size) = @_;
+        print "Read $offset / $size bytes\r";
+    }
+
+=head2 $sftp->put($local, $remote [, \&callback ])
 
 Uploads a file I<$local> from the local host to the remote
 host, and saves it as I<$remote>.
+
+If I<\&callback> is specified, it should be a reference to a
+subroutine. The subroutine will be executed at each iteration
+of the write loop, directly after the data has been read from
+the local file. The callback function will receive as arguments:
+a I<Net::SFTP> object with an open SFTP connection; the data
+read from I<$local>, generally in 8192-byte chunks;; the offset
+from the beginning of the file (in bytes); and the total size
+of the file (in bytes). You can use this mechanism to provide
+status messages, upload progress meters, etc.:
+
+    sub callback {
+        my($sftp, $data, $offset, $size) = @_;
+        print "Wrote $offset / $size bytes\r";
+    }
 
 =head2 $sftp->ls($remote [, $subref ])
 
@@ -590,6 +679,146 @@ permissions, etc.).
 If I<$subref> is not specified, returns a list of directory
 entries, each of which is a reference to a hash as described
 in the previous paragraph.
+
+=head1 COMMAND METHODS
+
+I<Net::SFTP> supports all of the commands listed in the SFTP
+version 3 protocol specification. Each command is available
+for execution as a separate method, with a few exceptions:
+I<SSH_FXP_INIT>, I<SSH_FXP_VERSION>, I<SSH_FXP_READ>,
+I<SSH_FXP_WRITE>, I<SSH_FXP_READDIR>.
+
+These are the available command methods:
+
+=head2 $sftp->do_open($path, $flags [, $attrs ])
+
+Sends the I<SSH_FXP_OPEN> command to open a remote file I<$path>,
+and returns an open handle on success. On failure returns
+I<undef>. The "open handle" is not a Perl filehandle, nor is
+it a file descriptor; it is merely a marker used to identify
+the open file between the client and the server.
+
+I<$flags> should be a bitmask of open flags, whose values can
+be obtained from I<Net::SFTP::Constants>:
+
+    use Net::SFTP::Constants qw( :flags );
+
+I<$attrs> should be a I<Net::SFTP::Attributes> object,
+specifying the initial attributes for the file I<$path>. If
+you're opening the file for reading only, I<$attrs> can be
+left blank, in which case it will be initialized to an
+empty set of attributes.
+
+=head2 $sftp->do_close($handle)
+
+Sends the I<SSH_FXP_CLOSE> command to close either an open
+file or open directory, identified by I<$handle> (the handle
+returned from either I<do_open> or I<do_opendir>).
+
+Emits a warning if the I<CLOSE> fails.
+
+Returns the status code for the operation. To turn the
+status code into a text message, take a look at the C<fx2txt>
+function in I<Net::SFTP::Util>.
+
+=head2 $sftp->do_lstat($path)
+
+=head2 $sftp->do_fstat($handle)
+
+=head2 $sftp->do_stat($path)
+
+These three methods all perform similar functionality: they
+run a I<stat> on a remote file and return the results in a
+I<Net::SFTP::Attributes> object on success.
+
+On failure, all three methods return I<undef>, and emit a
+warning.
+
+I<do_lstat> sends a I<SSH_FXP_LSTAT> command to obtain file
+attributes for a named file I<$path>. I<do_stat> sends a
+I<SSH_FXP_STAT> command, and differs from I<do_lstat> only
+in that I<do_stat> follows symbolic links on the server,
+whereas I<do_lstat> does not follow symbolic links.
+
+I<do_fstat> sends a I<SSH_FXP_FSTAT> command to obtain file
+attributes for an open file handle I<$handle>.
+
+=head2 $sftp->do_setstat($path, $attrs)
+
+=head2 $sftp->do_fsetstat($handle, $attrs)
+
+These two methods both perform similar functionality: they
+set the file attributes of a remote file. In both cases
+I<$attrs> should be a I<Net::SFTP::Attributes> object.
+
+I<do_setstat> sends a I<SSH_FXP_SETSTAT> command to set file
+attributes for a remote named file I<$path> to I<$attrs>.
+
+I<do_fsetstat> sends a I<SSH_FXP_FSETSTAT> command to set the
+attributes of an open file handle I<$handle> to I<$attrs>.
+
+Both methods emit a warning if the operation failes, and
+both return the status code for the operation. To turn the
+status code into a text message, take a look at the C<fx2txt>
+function in I<Net::SFTP::Util>.
+
+=head2 $sftp->do_opendir($path)
+
+Sends a I<SSH_FXP_OPENDIR> command to open the remote
+directory I<$path>, and returns an open handle on success.
+On failure returns I<undef>.
+
+=head2 $sftp->do_remove($path)
+
+Sends a I<SSH_FXP_REMOVE> command to remove the remote file
+I<$path>.
+
+Emits a warning if the operation fails.
+
+Returns the status code for the operation. To turn the
+status code into a text message, take a look at the C<fx2txt>
+function in I<Net::SFTP::Util>.
+
+=head2 $sftp->do_mkdir($path, $attrs)
+
+Sends a I<SSH_FXP_MKDIR> command to create a remote directory
+I<$path> whose attributes should be initialized to I<$attrs>,
+a I<Net::SFTP::Attributes> object.
+
+Emits a warning if the operation fails.
+
+Returns the status code for the operation. To turn the
+status code into a text message, take a look at the C<fx2txt>
+function in I<Net::SFTP::Util>.
+
+=head2 $sftp->do_rmdir($path)
+
+Sends a I<SSH_FXP_RMDIR> command to remove a remote directory
+I<$path>.
+
+Emits a warning if the operation fails.
+
+Returns the status code for the operation. To turn the
+status code into a text message, take a look at the C<fx2txt>
+function in I<Net::SFTP::Util>.
+
+=head2 $sftp->do_realpath($path)
+
+Sends a I<SSH_FXP_REALPATH> command to canonicalise I<$path>
+to an absolute path. This can be useful for turning paths
+containing I<'..'> into absolute paths.
+
+Returns the absolute path on success, I<undef> on failure.
+
+=head2 $sftp->do_rename($old, $new)
+
+Sends a I<SSH_FXP_RENAME> command to rename I<$old> to I<$new>.
+
+Emits a warning if the operation fails.
+
+Returns the status code for the operation. To turn the
+status code into a text message, take a look at the C<fx2txt>
+function in I<Net::SFTP::Util>.
 
 =head1 AUTHOR & COPYRIGHTS
 

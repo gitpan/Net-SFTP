@@ -1,4 +1,4 @@
-# $Id: Attributes.pm,v 1.3 2001/05/14 06:36:01 btrott Exp $
+# $Id: Attributes.pm,v 1.4 2001/05/15 22:01:58 btrott Exp $
 
 package Net::SFTP::Attributes;
 use strict;
@@ -84,3 +84,92 @@ sub as_buffer {
 }
 
 1;
+__END__
+
+=head1 NAME
+
+Net::SFTP::Attributes - File/directory attribute container
+
+=head1 SYNOPSIS
+
+    use Net::SFTP::Attributes;
+    my $attrs = Net::SFTP::Attributes->new(Stat => [ stat "foo" ]);
+    my $size = $attrs->size;
+
+=head1 DESCRIPTION
+
+I<Net::SFTP::Attributes> encapsulates file/directory attributes
+for I<Net::SFTP>. It also provides serialization and
+deserialization methods to encode/decode attributes into
+I<Net::SFTP::Buffer> objects.
+
+=head1 USAGE
+
+=head2 Net::SFTP::Attributes->new( [ %args ] )
+
+Constructs a new I<Net::SFTP::Attributes> object and returns
+that object.
+
+I<%args> is optional; if not provided the object will be
+initialized with the default values. If provided, I<%args>
+can contain:
+
+=over 4
+
+=item * Stat
+
+A reference to the return value of the built-in I<stat>
+function. The values in the I<Net::SFTP::Attributes> object
+will be initialized from the values in the I<stat> array,
+and the flags will be set appropriately.
+
+=item * Buffer
+
+A I<Net::SFTP::Buffer> object containing a serialized
+attribute object. The I<Net::SFTP::Attributes> object will
+be initialized from the values in the serialized string,
+and flags will be set appropriately.
+
+=back
+
+=head2 $attrs->as_buffer
+
+Serializes the I<Attributes> object I<$attrs> into string
+form, using the flags in the object to determine what fields
+get placed in the buffer. Returns a I<Net::SFTP::Buffer>
+object.
+
+=head2 $attrs->flags( [ $value ] )
+
+Get/set the value of the flags in I<$attrs>.
+
+=head2 $attrs->size( [ $value ] )
+
+Get/set the value of the file size (in bytes) in I<$attrs>.
+
+=head2 $attrs->uid( [ $value ] )
+
+Get/set the value of the UID in I<$attrs>.
+ 
+=head2 $attrs->gid( [ $value ] )
+
+Get/set the value of the GID in I<$attrs>.
+ 
+=head2 $attrs->perm( [ $value ] )
+
+Get/set the value of the permissions in I<$attrs>.
+ 
+=head2 $attrs->atime( [ $value ] )
+
+Get/set the value of the last access time (atime) in I<$attrs>.
+ 
+=head2 $attrs->mtime( [ $value ] )
+
+Get/set the value of the last modified time (mtime) in I<$attrs>.
+
+=head1 AUTHOR & COPYRIGHTS
+
+Please see the Net::SFTP manpage for author, copyright, and
+license information.
+
+=cut
