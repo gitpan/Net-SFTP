@@ -1,8 +1,13 @@
-$Id: Changes,v 1.7 2001/05/16 20:20:06 btrott Exp $
+$Id: Changes,v 1.11 2001/05/25 00:09:17 btrott Exp $
 
 Revision history for Net::SFTP
 
-0.04
+0.05  2001.05.24
+    - Added help ('h' or '?') command to psftp. Moved all shell
+      functionality into Net::SFTP::Shell.
+    - Net::SFTP::Util needed to 'use Exporter'.
+
+0.04  2001.05.16
     - Fixed bug in put method when running fsetstat command; it
       was trying to set the UID/GID on the remote file, which
       was giving a permission denied message. Should not try to

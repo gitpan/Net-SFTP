@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.19 2001/05/16 03:40:45 btrott Exp $
+# $Id: SFTP.pm,v 1.20 2001/05/25 00:09:18 btrott Exp $
 
 package Net::SFTP;
 use strict;
@@ -13,7 +13,7 @@ use Net::SSH::Perl;
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.04;
+$VERSION = 0.05;
 
 use constant COPY_SIZE => 8192;
 

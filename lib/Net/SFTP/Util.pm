@@ -1,4 +1,4 @@
-# $Id: Util.pm,v 1.3 2001/05/16 00:20:51 btrott Exp $
+# $Id: Util.pm,v 1.4 2001/05/22 04:28:00 btrott Exp $
 
 package Net::SFTP::Util;
 use strict;
@@ -6,6 +6,7 @@ use strict;
 use Net::SFTP::Constants qw( :status );
 
 use vars qw( @ISA @EXPORT_OK );
+use Exporter;
 @ISA = qw( Exporter );
 @EXPORT_OK = qw( fx2txt );
 
