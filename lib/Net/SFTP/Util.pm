@@ -1,4 +1,4 @@
-# $Id: Util.pm,v 1.2 2001/05/15 22:34:12 btrott Exp $
+# $Id: Util.pm,v 1.3 2001/05/16 00:20:51 btrott Exp $
 
 package Net::SFTP::Util;
 use strict;
@@ -45,7 +45,7 @@ used by I<Net::SFTP> libraries.
 Takes an integer status I<$status> as an argument, and returns
 a "friendly" textual message corresponding to that status.
 I<$status> should be one of the I<SSH2_FX_*> constants (exported
-by I<Net::SSH::Perl::Constants), perhaps returned from the
+by I<Net::SSH::Perl::Constants>), perhaps returned from the
 SFTP server in a I<SSH2_FXP_STATUS> message.
 
 =head1 AUTHOR & COPYRIGHTS

@@ -1,6 +1,19 @@
-$Id: Changes,v 1.4 2001/05/15 22:51:53 btrott Exp $
+$Id: Changes,v 1.7 2001/05/16 20:20:06 btrott Exp $
 
 Revision history for Net::SFTP
+
+0.04
+    - Fixed bug in put method when running fsetstat command; it
+      was trying to set the UID/GID on the remote file, which
+      was giving a permission denied message. Should not try to
+      set UID/GID, so had to adjust flags.
+    - Added eg/psftp, a working SFTP shell.
+    - Moved READ and WRITE commands into their own methods
+      (do_read and do_write, respectively).
+    - Changed semantics of get method. Returning the contents of
+      the remote file is no longer connected to whether a local
+      file is passed as an argument; it is instead based on the
+      calling context of 'get'. Updated docs to reflect this.
 
 0.03  2001.05.15
     - Documentation for all extra classes: Attributes, Buffer,

@@ -1,4 +1,4 @@
-# $Id: Attributes.pm,v 1.4 2001/05/15 22:01:58 btrott Exp $
+# $Id: Attributes.pm,v 1.5 2001/05/16 01:38:01 btrott Exp $
 
 package Net::SFTP::Attributes;
 use strict;
@@ -150,19 +150,19 @@ Get/set the value of the file size (in bytes) in I<$attrs>.
 =head2 $attrs->uid( [ $value ] )
 
 Get/set the value of the UID in I<$attrs>.
- 
+
 =head2 $attrs->gid( [ $value ] )
 
 Get/set the value of the GID in I<$attrs>.
- 
+
 =head2 $attrs->perm( [ $value ] )
 
 Get/set the value of the permissions in I<$attrs>.
- 
+
 =head2 $attrs->atime( [ $value ] )
 
 Get/set the value of the last access time (atime) in I<$attrs>.
- 
+
 =head2 $attrs->mtime( [ $value ] )
 
 Get/set the value of the last modified time (mtime) in I<$attrs>.

@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.14 2001/05/15 21:52:38 btrott Exp $
+# $Id: SFTP.pm,v 1.19 2001/05/16 03:40:45 btrott Exp $
 
 package Net::SFTP;
 use strict;
@@ -13,7 +13,7 @@ use Net::SSH::Perl;
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.03;
+$VERSION = 0.04;
 
 use constant COPY_SIZE => 8192;
 
@@ -40,7 +40,7 @@ sub init {
     my $channel = $sftp->_open_channel;
     $sftp->{channel} = $channel;
 
-    $sftp->send_init;
+    $sftp->do_init;
 
     $sftp;
 }
@@ -88,7 +88,7 @@ sub _open_channel {
     $channel;
 }
 
-sub send_init {
+sub do_init {
     my $sftp = shift;
     my $ssh = $sftp->{ssh};
 
@@ -106,8 +106,6 @@ sub send_init {
     $sftp->debug("Remote version: $version");
 
     ## XXX Check for extensions.
-
-    $sftp;
 }
 
 sub debug {
@@ -217,6 +215,54 @@ sub do_open {
     $sftp->get_handle($id);
 }
 
+## SSH2_FXP_READ (4)
+sub do_read {
+    my $sftp = shift;
+    my($handle, $offset, $size) = @_;
+    $size ||= COPY_SIZE;
+    my($msg, $expected_id) = $sftp->new_msg_w_id(SSH2_FXP_READ);
+    $msg->put_str($handle);
+    $msg->put_int64(int $offset);
+    $msg->put_int32($size);
+    $sftp->send_msg($msg);
+    $sftp->debug("Sent message SSH2_FXP_READ I:$expected_id O:$offset");
+    $msg = $sftp->get_msg;
+    my $type = $msg->get_int8;
+    my $id = $msg->get_int32;
+    $sftp->debug("Received reply T:$type I:$id");
+    croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
+    if ($type == SSH2_FXP_STATUS) {
+        my $status = $msg->get_int32;
+        if ($status != SSH2_FX_EOF) {
+            warn "Couldn't read from remote file: ", fx2txt($status);
+            $sftp->do_close($handle);
+        }
+        return(undef, $status);
+    }
+    elsif ($type != SSH2_FXP_DATA) {
+        croak "Expected SSH2_FXP_DATA packet, got $type";
+    }
+    $msg->get_str;
+}
+
+## SSH2_FXP_WRITE (6)
+sub do_write {
+    my $sftp = shift;
+    my($handle, $offset, $data) = @_;
+    my($msg, $id) = $sftp->new_msg_w_id(SSH2_FXP_WRITE);
+    $msg->put_str($handle);
+    $msg->put_int64(int $offset);
+    $msg->put_str($data);
+    $sftp->send_msg($msg);
+    $sftp->debug("Sent message SSH2_FXP_WRITE I:$id O:$offset");
+    my $status = $sftp->get_status($id);
+    if ($status != SSH2_FX_OK) {
+        warn "Couldn't write to remote file: ", fx2txt($status);
+        $sftp->do_close($handle);
+    }
+    return $status;
+}
+
 ## SSH2_FXP_LSTAT (7), SSH2_FXP_FSTAT (8), SSH2_FXP_STAT (17)
 sub do_lstat { $_[0]->_do_stat(SSH2_FXP_LSTAT, $_[1]) }
 sub do_fstat { $_[0]->_do_stat(SSH2_FXP_FSTAT, $_[1]) }
@@ -299,9 +345,9 @@ sub get {
     my $sftp = shift;
     my($remote, $local, $cb) = @_;
     my $ssh = $sftp->{ssh};
+    my $want = defined wantarray ? 1 : 0;
 
     my $a = $sftp->do_stat($remote) or return;
-
     local *FH;
     if ($local) {
         open FH, ">$local" or croak "Can't open $local: $!";
@@ -309,56 +355,23 @@ sub get {
     }
 
     my $handle = $sftp->do_open($remote, SSH2_FXF_READ);
-
     my $offset = 0;
     my $ret = '';
     while (1) {
-        my($id, $expected_id, $msg, $type);
-
-        ($msg, $id) = $sftp->new_msg_w_id(SSH2_FXP_READ);
-        $expected_id = $id;
-        $msg->put_str($handle);
-        $msg->put_int64(int($offset));
-        $msg->put_int32(COPY_SIZE);
-        $sftp->send_msg($msg);
-        $sftp->debug("Sent message SSH2_FXP_READ I:$id O:$offset");
-
-        $msg = $sftp->get_msg;
-        $type = $msg->get_int8;
-        $id = $msg->get_int32;
-        $sftp->debug("Received reply T:$type I:$id");
-        croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
-        if ($type == SSH2_FXP_STATUS) {
-            my $status = $msg->get_int32;
-            if ($status == SSH2_FX_EOF) {
-                last;
-            }
-            else {
-                warn "Couldn't read from remote file: ", fx2txt($status);
-                $sftp->do_close($handle);
-                return;
-            }
-        }
-        elsif ($type != SSH2_FXP_DATA) {
-            croak "Expected SSH2_FXP_DATA packet, got $type";
-        }
-
-        my $data = $msg->get_str;
+        my($data, $status) = $sftp->do_read($handle, $offset, COPY_SIZE);
+        last if defined $status && $status == SSH2_FX_EOF;
+        return unless $data;
         my $len = length($data);
-        if ($len > COPY_SIZE) {
-            croak "Received more data than asked for $len > " . COPY_SIZE;
-        }
+        croak "Received more data than asked for $len > " . COPY_SIZE
+            if $len > COPY_SIZE;
         $sftp->debug("In read loop, got $len offset $offset");
-
         $cb->($sftp, $data, $offset, $a->size) if defined $cb;
-
         if ($local) {
             print FH $data;
         }
-        else {
+        elsif ($want) {
             $ret .= $data;
         }
-
         $offset += $len;
     }
     $sftp->do_close($handle);
@@ -375,7 +388,6 @@ sub get {
                 croak "Can't utime $local: $!";
         }
     }
-
     $ret;
 }
 
@@ -386,11 +398,16 @@ sub put {
 
     my @stat = stat $local or croak "Can't stat local $local: $!";
     my $size = $stat[7];
+    my $a = Net::SFTP::Attributes->new(Stat => \@stat);
+    my $flags = $a->flags;
+    $flags &= ~SSH2_FILEXFER_ATTR_SIZE;
+    $flags &= ~SSH2_FILEXFER_ATTR_UIDGID;
+    $a->flags($flags);
+    $a->perm( $a->perm & 0777 );
 
     local *FH;
     open FH, $local or croak "Can't open local file $local: $!";
     binmode FH or die "Can't binmode FH: $!";
-    my $a = Net::SFTP::Attributes->new(Stat => \@stat);
 
     my $handle = $sftp->do_open($remote, SSH2_FXF_WRITE | SSH2_FXF_CREAT |
         SSH2_FXF_TRUNC, $a);
@@ -400,25 +417,13 @@ sub put {
         my($len, $data, $msg, $id);
         $len = read FH, $data, COPY_SIZE;
         last unless $len;
-
         $cb->($sftp, $data, $offset, $size) if defined $cb;
-
-        ($msg, $id) = $sftp->new_msg_w_id(SSH2_FXP_WRITE);
-        $msg->put_str($handle);
-        $msg->put_int64(int($offset));
-        $msg->put_str($data);
-        $sftp->send_msg($msg);
-        $sftp->debug("Sent message SSH2_FXP_WRITE I:$id O:$offset S:$len");
-
-        my $status = $sftp->get_status($id);
+        my $status = $sftp->do_write($handle, $offset, $data);
         if ($status != SSH2_FX_OK) {
-            warn "Couldn't write to remote file $remote: ", fx2txt($status);
-            $sftp->do_close($handle);
             close FH;
             return;
         }
         $sftp->debug("In write loop, got $len offset $offset");
-
         $offset += $len;
     }
 
@@ -626,7 +631,16 @@ remote file I<$remote> are written to I<$local>. In addition,
 its filesystem attributes (atime, mtime, permissions, etc.)
 will be set to those of the remote file.
 
-If I<$local> is not given, returns the contents of I<$remote>.
+If I<get> is called in a non-void context, returns the contents
+of I<$remote> (as well as writing them to I<$local>, if I<$local>
+is provided.
+
+I<$local> is optional. If not provided, the contents of the
+remote file I<$remote> will be either discarded, if I<get> is
+called in void context, or returned from I<get> if called in
+a non-void context. Presumably, in the former case, you will
+use the callback function I<\&callback> to "do something" with
+the contents of I<$remote>.
 
 If I<\&callback> is specified, it should be a reference to a
 subroutine. The subroutine will be executed at each iteration
@@ -685,8 +699,7 @@ in the previous paragraph.
 I<Net::SFTP> supports all of the commands listed in the SFTP
 version 3 protocol specification. Each command is available
 for execution as a separate method, with a few exceptions:
-I<SSH_FXP_INIT>, I<SSH_FXP_VERSION>, I<SSH_FXP_READ>,
-I<SSH_FXP_WRITE>, I<SSH_FXP_READDIR>.
+I<SSH_FXP_INIT>, I<SSH_FXP_VERSION>, and I<SSH_FXP_READDIR>.
 
 These are the available command methods:
 
@@ -708,6 +721,32 @@ specifying the initial attributes for the file I<$path>. If
 you're opening the file for reading only, I<$attrs> can be
 left blank, in which case it will be initialized to an
 empty set of attributes.
+
+=head2 $sftp->do_read($handle, $offset, $copy_size)
+
+Sends the I<SSH_FXP_READ> command to read from an open file
+handle I<$handle>, starting at I<$offset>, and reading at most
+I<$copy_size> bytes.
+
+Returns a two-element list consisting of the data read from
+the SFTP server in the first slot, and the status code (if any)
+in the second. In the case of a successful read, the status code
+will be I<undef>, and the data will be defined and true. In the
+case of EOF, the status code will be I<SSH2_FX_EOF>, and the
+data will be I<undef>. And in the case of an error in the read,
+a warning will be emitted, the status code will contain the
+error code, and the data will be I<undef>.
+
+=head2 $sftp->do_write($handle, $offset, $data)
+
+Sends the I<SSH_FXP_WRITE> command to write to an open file handle
+I<$handle>, starting at I<$offset>, and where the data to be
+written is in I<$data>.
+
+Returns the status code. On a successful write, the status code
+will be equal to SSH2_FX_OK; in the case of an unsuccessful
+write, a warning will be emitted, and the status code will
+contain the error returned from the server.
 
 =head2 $sftp->do_close($handle)
 

@@ -3,6 +3,7 @@ MANIFEST
 Makefile.PL
 README
 ToDo
+eg/psftp
 lib/Net/SFTP.pm
 lib/Net/SFTP/Attributes.pm
 lib/Net/SFTP/Buffer.pm
