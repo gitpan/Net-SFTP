@@ -13,7 +13,7 @@ use Net::SSH::Perl;
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.05;
+$VERSION = 0.06;
 
 use constant COPY_SIZE => 8192;
 
@@ -53,21 +53,21 @@ sub _open_channel {
     $channel->open;
 
     $channel->register_handler(SSH2_MSG_CHANNEL_OPEN_CONFIRMATION, sub {
-        my($channel, $packet) = @_;
-        $channel->{ssh}->debug("Sending subsystem: sftp");
-        my $r_packet = $channel->request_start("subsystem", 1);
+        my($c, $packet) = @_;
+        $c->{ssh}->debug("Sending subsystem: sftp");
+        my $r_packet = $c->request_start("subsystem", 1);
         $r_packet->put_str("sftp");
         $r_packet->send;
     });
 
     my $subsystem_reply = sub {
-        my($channel, $packet) = @_;
+        my($c, $packet) = @_;
         my $id = $packet->get_int32;
         if ($packet->type == SSH2_MSG_CHANNEL_FAILURE) {
-            $channel->{ssh}->fatal_disconnect("Request for " .
+            $c->{ssh}->fatal_disconnect("Request for " .
                 "subsystem 'sftp' failed on channel '$id'");
         }
-        $channel->{ssh}->break_client_loop;
+        $c->{ssh}->break_client_loop;
     };
 
     my $cmgr = $ssh->channel_mgr;
@@ -75,10 +75,11 @@ sub _open_channel {
     $cmgr->register_handler(SSH2_MSG_CHANNEL_SUCCESS, $subsystem_reply);
 
     $sftp->{incoming} = Net::SFTP::Buffer->new;
+    my $incoming = $sftp->{incoming};
     $channel->register_handler("_output_buffer", sub {
-        my($channel, $buffer) = @_;
-        $sftp->{incoming}->append($buffer->bytes);
-        $channel->{ssh}->break_client_loop;
+        my($c, $buffer) = @_;
+        $incoming->append($buffer->bytes);
+        $c->{ssh}->break_client_loop;
     });
 
     ## Get channel confirmation, etc. Break once we get a response
@@ -859,13 +860,19 @@ Returns the status code for the operation. To turn the
 status code into a text message, take a look at the C<fx2txt>
 function in I<Net::SFTP::Util>.
 
-=head1 AUTHOR & COPYRIGHTS
+=head1 AUTHOR
 
-Benjamin Trott, ben@rhumba.pair.com
+Current maintainer is Dave Rolsky, autarch@urth.org.
 
-Except where otherwise noted, Net::SFTP is Copyright
-2001 Benjamin Trott. All rights reserved. Net::SFTP is free
-software; you may redistribute it and/or modify it under
-the same terms as Perl itself.
+Originally written by Benjamin Trott.
+
+=head1 COPYRIGHT
+
+Copyright (c) 2001 Benjamin Trott.  All rights reserved.  This program
+is free software; you can redistribute it and/or modify it under the
+same terms as Perl itself.
+
+The full text of the license can be found in the LICENSE file included
+with this module.
 
 =cut
