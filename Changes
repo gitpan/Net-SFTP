@@ -1,0 +1,6 @@
+$Id: Changes,v 1.1 2001/05/13 23:14:07 btrott Exp $
+
+Revision history for Net::SFTP
+
+0.01  2001.05.13
+    - original version; created by h2xs 1.19
