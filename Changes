@@ -1,8 +1,11 @@
 Revision history for Net::SFTP
 
+0.07  2003.11.14
+    - Require Net::SSH::Perl 1.24, which also includes circular
+      reference fixes.
 
 0.06  2003.11.14
-    - New (temporary) maintainer, Dave Rolsky.
+    - New (temporary?) maintainer, Dave Rolsky.
     - Fixed a circular reference which caused connections to be held
       open indefinitely in a persistent environment like mod_perl.
       This uses weak references, so Perl 5.6.0+ is now required.

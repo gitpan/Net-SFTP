@@ -8,12 +8,12 @@ use Net::SFTP::Util qw( fx2txt );
 use Net::SFTP::Attributes;
 use Net::SFTP::Buffer;
 use Net::SSH::Perl::Constants qw( :msg2 );
-use Net::SSH::Perl;
+use Net::SSH::Perl 1.24;
 
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.06;
+$VERSION = 0.07;
 
 use constant COPY_SIZE => 8192;
 
