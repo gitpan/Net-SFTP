@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.9 2001/05/14 07:48:56 btrott Exp $
+# $Id: SFTP.pm,v 1.11 2001/05/15 06:51:50 btrott Exp $
 
 package Net::SFTP;
 use strict;
@@ -13,7 +13,7 @@ use Net::SSH::Perl;
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.01;
+$VERSION = 0.02;
 
 use constant COPY_SIZE => 8192;
 
@@ -456,12 +456,16 @@ sub send_msg {
 sub get_msg {
     my $sftp = shift;
     my $buf = $sftp->{incoming};
+    my $len;
     unless ($buf->length > 4) {
         $sftp->{ssh}->client_loop;
+        croak "Connection closed" unless $buf->length > 4;
+        $len = unpack "N", $buf->bytes(0, 4, '');
+        croak "Received message too long $len" if $len > 256 * 1024;
+        while ($buf->length < $len) {
+            $sftp->{ssh}->client_loop;
+        }
     }
-    croak "Connection closed" unless $buf->length > 4;
-    my $len = unpack "N", $buf->bytes(0, 4, '');
-    croak "Received messgge too long $len" if $len > 256 * 1024;
     my $b = Net::SFTP::Buffer->new;
     $b->append( $buf->bytes(0, $len, '') );
     $b;
@@ -489,7 +493,7 @@ SSH protocol. I<Net::SFTP> uses I<Net::SSH::Perl> to build a
 secure, encrypted tunnel through which files can be transferred
 and managed. It provides a subset of the commands listed in
 the SSH File Transfer Protocol IETF draft, which can be found
-at http://www.openssh.com/txt/draft-ietf-secsh-filexfer-00.txt.
+at I<http://www.openssh.com/txt/draft-ietf-secsh-filexfer-00.txt>.
 
 SFTP stands for Secure File Transfer Protocol and is a method of
 transferring files between machines over a secure, encrypted

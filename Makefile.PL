@@ -1,4 +1,4 @@
-# $Id: Makefile.PL,v 1.1 2001/05/13 23:14:07 btrott Exp $
+# $Id: Makefile.PL,v 1.2 2001/05/15 06:51:37 btrott Exp $
 
 use ExtUtils::MakeMaker;
 
@@ -9,6 +9,6 @@ WriteMakefile(
     AUTHOR => 'Benjamin Trott <ben@rhumba.pair.com>',
     ABSTRACT => 'Secure File Transfer Protocol client',
     PREREQ_PM => {
-        'Net::SSH::Perl' => '1.12',
+        'Net::SSH::Perl' => '1.13',
     },
 );

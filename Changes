@@ -1,6 +1,16 @@
-$Id: Changes,v 1.1 2001/05/13 23:14:07 btrott Exp $
+$Id: Changes,v 1.2 2001/05/15 06:51:20 btrott Exp $
 
 Revision history for Net::SFTP
+
+0.02  2001.05.14
+    - Fixed bug with SSH2 server not sending one message per
+      packet, ie. multiple packets have to be retrieved to make
+      up one SFTP message. This would show up as a "Message length
+      too long" error. Thanks to Matt Good for the spot.
+    - Fixed bug with OpenSSH and SSH2 SFTP servers where after
+      a certain amount of bytes the connection would hang. This
+      was a bug in Net::SSH::Perl (channel window sizes) that is
+      fixed in version 1.13.
 
 0.01  2001.05.13
     - original version; created by h2xs 1.19
