@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.20 2001/05/25 00:09:18 btrott Exp $
+# $Id: SFTP.pm,v 1.29 2003/12/12 21:24:21 autarch Exp $
 
 package Net::SFTP;
 use strict;
@@ -13,7 +13,7 @@ use Net::SSH::Perl 1.24;
 use Carp qw( croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.07;
+$VERSION = 0.08;
 
 use constant COPY_SIZE => 8192;
 
@@ -860,6 +860,18 @@ Returns the status code for the operation. To turn the
 status code into a text message, take a look at the C<fx2txt>
 function in I<Net::SFTP::Util>.
 
+=head1 SUPPORT
+
+For samples/tutorials, take a look at the scripts in F<eg/> in
+the distribution directory.
+
+There is a mailing list for development discussion and usage
+questions.  Posting is limited to subscribers only.  You can sign up
+at http://lists.sourceforge.net/lists/listinfo/ssh-sftp-perl-users
+
+Please report all bugs via rt.cpan.org at
+https://rt.cpan.org/NoAuth/ReportBug.html?Queue=net%3A%3Asftp
+
 =head1 AUTHOR
 
 Current maintainer is Dave Rolsky, autarch@urth.org.
@@ -868,9 +880,9 @@ Originally written by Benjamin Trott.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001 Benjamin Trott.  All rights reserved.  This program
-is free software; you can redistribute it and/or modify it under the
-same terms as Perl itself.
+Copyright (c) 2001 Benjamin Trott, Copyright (c) 2003 David Rolsky.
+All rights reserved.  This program is free software; you can
+redistribute it and/or modify it under the same terms as Perl itself.
 
 The full text of the license can be found in the LICENSE file included
 with this module.

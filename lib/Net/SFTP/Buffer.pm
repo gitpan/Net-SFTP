@@ -1,12 +1,16 @@
-# $Id: Buffer.pm,v 1.4 2001/05/15 22:12:50 btrott Exp $
+# $Id: Buffer.pm,v 1.10 2003/12/12 21:23:46 autarch Exp $
 
 package Net::SFTP::Buffer;
 use strict;
 
-use Net::SSH::Perl::Buffer qw( SSH2 );
+use Net::SSH::Perl::Buffer;
 use base qw( Net::SSH::Perl::Buffer );
 
 use Net::SSH::Perl::Util qw( :ssh2mp );
+
+sub new {
+    return shift->SUPER::new(@_, MP => 'SSH2');
+}
 
 sub get_int64 {
     my $buf = shift;
