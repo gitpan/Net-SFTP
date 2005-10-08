@@ -1,4 +1,4 @@
-# $Id: SFTP.pm,v 1.30 2005/01/16 21:36:56 dbrobins Exp $
+# $Id: SFTP.pm,v 1.35 2005/10/05 06:19:36 dbrobins Exp $
 
 package Net::SFTP;
 use strict;
@@ -13,7 +13,7 @@ use Net::SSH::Perl 1.24;
 use Carp qw( carp croak );
 
 use vars qw( $VERSION );
-$VERSION = 0.09;
+$VERSION = '0.10';
 
 use constant COPY_SIZE => 8192;
 
@@ -52,14 +52,14 @@ sub init {
 
     $param{warn} = 1 if not defined $param{warn};   # default
     $sftp->{warn_h} = delete $param{warn} || sub {};  # false => ignore
-    $sftp->{warn_h} = sub { carp $_[1] }	# true	=> emit warning
+    $sftp->{warn_h} = sub { carp $_[1] }  # true  => emit warning
      if $sftp->{warn_h} and not ref $sftp->{warn_h};
 
     $sftp->{_msg_id} = 0;
 
     my $ssh = Net::SSH::Perl->new($sftp->{host}, protocol => 2,
         debug => $sftp->{debug}, @{ $param{ssh_args} });
-    $ssh->login($param{user}, $param{password});
+    $ssh->login($param{user}, $param{password}, 'supress_shell');
     $sftp->{ssh} = $ssh;
 
     my $channel = $sftp->_open_channel;
@@ -155,7 +155,7 @@ sub get_attrs {
     croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
-	$sftp->warn("Couldn't stat remote file",$status);
+  $sftp->warn("Couldn't stat remote file",$status);
         return;
     }
     elsif ($type != SSH2_FXP_ATTRS) {
@@ -192,7 +192,7 @@ sub get_handle {
     croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
-	$sftp->warn("Couldn't get handle",$status);
+  $sftp->warn("Couldn't get handle",$status);
         return;
     }
     elsif ($type != SSH2_FXP_HANDLE) {
@@ -266,7 +266,7 @@ sub do_read {
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
         if ($status != SSH2_FX_EOF) {
-	    $sftp->warn("Couldn't read from remote file",$status);
+      $sftp->warn("Couldn't read from remote file",$status);
             $sftp->do_close($handle);
         }
         return(undef, $status);
@@ -347,7 +347,7 @@ sub do_realpath {
     croak "ID mismatch ($id != $expected_id)" unless $id == $expected_id;
     if ($type == SSH2_FXP_STATUS) {
         my $status = $msg->get_int32;
-	$sftp->warn("Couldn't canonicalise $path",$status);
+  $sftp->warn("Couldn't canonicalise $path",$status);
         return;
     }
     elsif ($type != SSH2_FXP_NAME) {
@@ -382,14 +382,15 @@ sub get {
     my $want = defined wantarray ? 1 : 0;
 
     my $a = $sftp->do_stat($remote) or return;
-    my $handle = $sftp->do_open($remote, SSH2_FXF_READ) or return;
+    my $handle = $sftp->do_open($remote, SSH2_FXF_READ);
+    return unless defined $handle;
 
     local *FH;
     if ($local) {
-	open FH, ">$local" or
-	    $sftp->do_close($handle), croak "Can't open $local: $!";
-	binmode FH or
-	    $sftp->do_close($handle), croak "Can't binmode FH: $!";
+        open FH, ">$local" or
+         $sftp->do_close($handle), croak "Can't open $local: $!";
+        binmode FH or
+         $sftp->do_close($handle), croak "Can't binmode FH: $!";
     }
 
     my $offset = 0;
@@ -447,7 +448,8 @@ sub put {
     binmode FH or croak "Can't binmode FH: $!";
 
     my $handle = $sftp->do_open($remote, SSH2_FXF_WRITE | SSH2_FXF_CREAT |
-	SSH2_FXF_TRUNC, $a) or return;  # check status for info
+     SSH2_FXF_TRUNC, $a);  # check status for info
+    return unless defined $handle;
 
     my $offset = 0;
     while (1) {
@@ -477,7 +479,9 @@ sub ls {
     my $sftp = shift;
     my($remote, $code) = @_;
     my @dir;
-    my $handle = $sftp->do_opendir($remote) or return;
+    my $handle = $sftp->do_opendir($remote);
+    return unless defined $handle;
+
     while (1) {
         my $expected_id = $sftp->_send_str_request(SSH2_FXP_READDIR, $handle);
         my $msg = $sftp->get_msg;
@@ -493,7 +497,7 @@ sub ls {
                 last;
             }
             else {
-		$sftp->warn("Couldn't read directory",$status);
+    $sftp->warn("Couldn't read directory",$status);
                 $sftp->do_close($handle);
                 return;
             }
@@ -591,8 +595,8 @@ Net::SFTP - Secure File Transfer Protocol client
 =head1 DESCRIPTION
 
 I<Net::SFTP> is a pure-Perl implementation of the Secure File
-Transfer Protocol (SFTP)--file transfer built on top of the
-SSH protocol. I<Net::SFTP> uses I<Net::SSH::Perl> to build a
+Transfer Protocol (SFTP) - file transfer built on top of the
+SSH2 protocol. I<Net::SFTP> uses I<Net::SSH::Perl> to build a
 secure, encrypted tunnel through which files can be transferred
 and managed. It provides a subset of the commands listed in
 the SSH File Transfer Protocol IETF draft, which can be found
@@ -658,12 +662,13 @@ are output with 'warn' (default).
 
 =item * ssh_args
 
-Specifies a reference to a list of named arguments that should
-be given to the constructor of the I<Net::SSH::Perl> object
+Specifies a reference to a list or hash of named arguments that
+should be given to the constructor of the I<Net::SSH::Perl> object
 underlying the I<Net::SFTP> connection.
 
 For example, you could use this to set up your authentication
-identity files, to set a specific cipher for encryption, etc.
+identity files, to set a specific cipher for encryption, etc.,
+e.g. C<ssh_args =E<gt> [ cipher =E<gt> 'arcfour' ]>.
 
 See the I<new> method in I<Net::SSH::Perl> for more details.
 
@@ -931,15 +936,18 @@ https://rt.cpan.org/NoAuth/ReportBug.html?Queue=net%3A%3Asftp
 
 =head1 AUTHOR
 
-Current maintainer is Dave Rolsky, autarch@urth.org.
+Current maintainer is David Robins, dbrobins@cpan.org.
+
+Previous maintainer was Dave Rolsky, autarch@urth.org.
 
 Originally written by Benjamin Trott.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001 Benjamin Trott, Copyright (c) 2003 David Rolsky.
-All rights reserved.  This program is free software; you can
-redistribute it and/or modify it under the same terms as Perl itself.
+Copyright (c) 2001-2003 Benjamin Trott, Copyright (c) 2003-2004 David
+Rolsky.  Copyright (c) David Robins.  All rights reserved.  This
+program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
 
 The full text of the license can be found in the LICENSE file included
 with this module.

@@ -1,4 +1,4 @@
-$Id: README,v 1.5 2005/01/16 21:36:56 dbrobins Exp $
+$Id: README,v 1.6 2005/01/18 17:57:17 autarch Exp $
 
 This is Net::SFTP, a module implementing a client for the Secure
 File Transfer Protocol.
@@ -38,5 +38,4 @@ SAMPLES
 Take a look at eg/psftp, an interactive SFTP shell using Net::SFTP,
 for some examples on using Net::SFTP and its various methods.
 
-Benjamin Trott / ben@rhumba.pair.com
 David Robins / dbrobins@cpan.org
